@@ -206,29 +206,26 @@ echo.
 call :ShowProgress "Проверка типа сборки..." 100
 set "GITHUB_BUILD_TYPE=не найден"
 
-:: Скачиваем global.ini из GitHub для проверки типа сборки
-powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/%GITHUB_AUTOR%/%GITHUB_REPO%/master/data/Localization/korean_(south_korea)/global.ini' -OutFile '%TEMP_DIR%\github_global.ini' -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>&1
-
+:: Скачиваем global.ini из GitHub для проверки типа сборки (используем curl если доступен, иначе PowerShell)
+where curl >nul 2>&1
 if %errorlevel% equ 0 (
-    if exist "%TEMP_DIR%\github_global.ini" (
-        echo [DEBUG] Файл github_global.ini скачан успешно
-        call :GetBuildTypeFromFile "%TEMP_DIR%\github_global.ini" GITHUB_BUILD_TYPE
-        echo [DEBUG] Результат GetBuildTypeFromFile: !GITHUB_BUILD_TYPE!
-    ) else (
-        echo [DEBUG] Файл github_global.ini не существует после скачивания
-    )
+    :: Используем curl
+    curl -s -o "%TEMP_DIR%\github_global.ini" "https://raw.githubusercontent.com/%GITHUB_AUTOR%/%GITHUB_REPO%/master/data/Localization/korean_(south_korea)/global.ini"
 ) else (
-    echo [DEBUG] Ошибка скачивания github_global.ini
+    :: Используем PowerShell без кириллицы в команде
+    powershell -NoProfile -Command "try { (New-Object Net.WebClient).DownloadFile('https://raw.githubusercontent.com/%GITHUB_AUTOR%/%GITHUB_REPO%/master/data/Localization/korean_(south_korea)/global.ini', '%TEMP_DIR%\github_global.ini'); exit 0 } catch { exit 1 }" >nul 2>&1
 )
+
+if exist "%TEMP_DIR%\github_global.ini" (
+    call :GetBuildTypeFromFile "%TEMP_DIR%\github_global.ini" GITHUB_BUILD_TYPE
+) 
 
 if "!GITHUB_BUILD_TYPE!"=="не найден" (
     echo ⚠️ Не удалось определить тип сборки в GitHub релизе
     echo Продолжаем с предположением, что релиз корректный
     set "GITHUB_BUILD_TYPE=UNKNOWN"
-    echo [DEBUG] GITHUB_BUILD_TYPE установлен в: UNKNOWN
 ) else (
     echo ✓ Тип сборки в GitHub релизе: !GITHUB_BUILD_TYPE!
-    echo [DEBUG] GITHUB_BUILD_TYPE = !GITHUB_BUILD_TYPE!
 )
 
 echo.
@@ -279,9 +276,7 @@ echo.
 
 if "!LIVE_FOUND!"=="true" (
     :: Показываем обновление для LIVE только если GitHub релиз содержит LIVE сборку или тип неизвестен
-    echo [DEBUG] Проверка LIVE: GITHUB_BUILD_TYPE=!GITHUB_BUILD_TYPE!, LIVE_VERSION=!LIVE_VERSION!, GITHUB_VERSION=!GITHUB_VERSION!
     if "!GITHUB_BUILD_TYPE!"=="LIVE" (
-        echo [DEBUG] GitHub релиз содержит LIVE сборку
         if "!LIVE_VERSION!"=="не найдена" (
             echo  1 - Установить LIVE локализацию версии !GITHUB_VERSION!
         ) else (
@@ -290,7 +285,6 @@ if "!LIVE_FOUND!"=="true" (
             )
         )
     ) else if "!GITHUB_BUILD_TYPE!"=="UNKNOWN" (
-        echo [DEBUG] Тип сборки GitHub неизвестен, показываем опцию LIVE
         if "!LIVE_VERSION!"=="не найдена" (
             echo  1 - Установить LIVE локализацию версии !GITHUB_VERSION!
         ) else (
@@ -300,16 +294,12 @@ if "!LIVE_FOUND!"=="true" (
         )
     ) else if "!GITHUB_BUILD_TYPE!"=="PTU" (
         echo ⚠️  В GitHub релизе находится PTU сборка, обновление LIVE недоступно
-    ) else (
-        echo [DEBUG] Неизвестный GITHUB_BUILD_TYPE: !GITHUB_BUILD_TYPE!
     )
 )
 
 if "!PTU_FOUND!"=="true" (
     :: Показываем обновление для PTU только если GitHub релиз содержит PTU сборку или тип неизвестен
-    echo [DEBUG] Проверка PTU: GITHUB_BUILD_TYPE=!GITHUB_BUILD_TYPE!, PTU_VERSION=!PTU_VERSION!, GITHUB_VERSION=!GITHUB_VERSION!
     if "!GITHUB_BUILD_TYPE!"=="PTU" (
-        echo [DEBUG] GitHub релиз содержит PTU сборку
         if "!PTU_VERSION!"=="не найдена" (
             echo  2 - Установить PTU локализацию версии !GITHUB_VERSION!
         ) else (
@@ -318,7 +308,6 @@ if "!PTU_FOUND!"=="true" (
             )
         )
     ) else if "!GITHUB_BUILD_TYPE!"=="UNKNOWN" (
-        echo [DEBUG] Тип сборки GitHub неизвестен, показываем опцию PTU
         if "!PTU_VERSION!"=="не найдена" (
             echo  2 - Установить PTU локализацию версии !GITHUB_VERSION!
         ) else (
@@ -328,8 +317,6 @@ if "!PTU_FOUND!"=="true" (
         )
     ) else if "!GITHUB_BUILD_TYPE!"=="LIVE" (
         echo ⚠️  В GitHub релизе находится LIVE сборка, обновление PTU недоступно
-    ) else (
-        echo [DEBUG] Неизвестный GITHUB_BUILD_TYPE: !GITHUB_BUILD_TYPE!
     )
 )
 
