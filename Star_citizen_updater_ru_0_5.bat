@@ -131,6 +131,11 @@ set "PTU_FOUND=false"
 set "LIVE_VERSION=не найдена"
 set "PTU_VERSION=не найдена"
 
+:: Извлекаем числовые части версий
+call :ExtractVersionDigits "!LIVE_VERSION!" LIVE_VERSION_NUM
+call :ExtractVersionDigits "!PTU_VERSION!" PTU_VERSION_NUM
+call :ExtractVersionDigits "!GITHUB_VERSION!" GITHUB_VERSION_NUM
+
 if not "!LIVE_PATH!"=="" (
     set "LIVE_FOUND=true"
     if exist "!LIVE_VERSION_FILE!" (
@@ -329,6 +334,41 @@ powershell -NoProfile -Command "try { Expand-Archive -Path '%TEMP_DIR%\localizat
 
 if %errorlevel% neq 0 (
     echo ОШИБКА: Не удалось распаковать архив
+    pause
+    goto :LaunchGame
+)
+
+call :ShowProgress "Проверка типа сборки..." 70
+
+:: Проверяем тип сборки в скачанном архиве
+set "ARCHIVE_GLOBAL_INI=%TEMP_DIR%\extracted\StarCitizenRu-master\data\Localization\korean_(south_korea)\global.ini"
+set "ARCHIVE_BUILD_TYPE=не найден"
+
+if exist "%ARCHIVE_GLOBAL_INI%" (
+    call :GetBuildTypeFromFile "%ARCHIVE_GLOBAL_INI%" ARCHIVE_BUILD_TYPE
+) else (
+    echo ОШИБКА: Файл global.ini не найден в архиве
+    pause
+    goto :LaunchGame
+)
+
+:: Проверяем соответствие типа сборки
+if "!ARCHIVE_BUILD_TYPE!"=="не найден" (
+    echo ОШИБКА: Не удалось определить тип сборки в архиве
+    pause
+    goto :LaunchGame
+)
+
+if not "!ARCHIVE_BUILD_TYPE!"=="!SELECTED_VERSION!" (
+    echo.
+    echo ⚠️  ВНИМАНИЕ: В скачанном релизе находится сборка типа: !ARCHIVE_BUILD_TYPE!
+    echo    Вы пытаетесь установить её в папку: !SELECTED_VERSION!
+    echo.
+    echo    Это может привести к неправильной работе локализации.
+    echo    Установка отменена.
+    echo.
+    echo    Рекомендуется дождаться правильного релиза для !SELECTED_VERSION!.
+    echo.
     pause
     goto :LaunchGame
 )
@@ -868,12 +908,44 @@ if not exist "%file_path%" (
 )
 
 :: Используем PowerShell для безопасного чтения файла и поиска версии
-:: Ищем строку с "Установленная версия:" и извлекаем версию в формате X.X.X vXX
-for /f "delims=" %%b in ('powershell -NoProfile -Command "try { $content = Get-Content '%file_path%' -ErrorAction Stop -Encoding UTF8 -Raw; if($content -match 'Установленная версия:\s+(?:LIVE|PTU)\s+([\d\.]+\s+v\d+)') { $matches[1] } else { 'не найдена' } } catch { 'не найдена' }" 2^>nul') do (
+:: Ищем строку с "Установленная версия:" и извлекаем полную версию в формате LIVE/PTU X.X.X vXX
+for /f "delims=" %%b in ('powershell -NoProfile -Command "try { $content = Get-Content '%file_path%' -ErrorAction Stop -Encoding UTF8 -Raw; if($content -match 'Установленная версия:\s+((?:LIVE|PTU)\s+[\d\.]+\s+v\d+)') { $matches[1] } else { 'не найдена' } } catch { 'не найдена' }" 2^>nul') do (
     set "version=%%b"
 )
 
 set "%return_var%=%version%"
+goto :eof
+
+:: Функция извлечения типа сборки из файла global.ini (LIVE или PTU)
+:GetBuildTypeFromFile
+set "file_path=%~1"
+set "return_var=%~2"
+set "build_type=не найден"
+
+if not exist "%file_path%" (
+    set "%return_var%=не найден"
+    goto :eof
+)
+
+:: Используем PowerShell для извлечения типа сборки
+for /f "delims=" %%b in ('powershell -NoProfile -Command "try { $content = Get-Content '%file_path%' -ErrorAction Stop -Encoding UTF8 -Raw; if($content -match 'Установленная версия:\s+(LIVE|PTU)\s+[\d\.]+\s+v\d+') { $matches[1] } else { 'не найден' } } catch { 'не найден' }" 2^>nul') do (
+    set "build_type=%%b"
+)
+
+set "%return_var%=%build_type%"
+goto :eof
+
+:: Функция извлечения только цифровой части версии (X.X.X vXX) из полной строки (LIVE/PTU X.X.X vXX)
+:ExtractVersionDigits
+set "full_version=%~1"
+set "return_var=%~2"
+set "version_digits=не найдена"
+
+for /f "tokens=2,3,4" %%a in ("!full_version!") do (
+    set "version_digits=%%a %%b %%c"
+)
+
+set "%return_var%=!version_digits!"
 goto :eof
 
 :: Функция создания бэкапа user.cfg
@@ -1006,7 +1078,7 @@ if defined STATUS_TABLE_READY (
         if "!LIVE_VERSION!"=="не найдена" (
             echo  ║ LIVE   │ не установлена  │ !GITHUB_VERSION!  │   ✗ Не установлена    ║
         ) else (
-            if "!LIVE_VERSION!"=="!GITHUB_VERSION!" (
+            if "!LIVE_VERSION_NUM!"=="!GITHUB_VERSION_NUM!" (
                 echo  ║ LIVE   │    !LIVE_VERSION!    │ !GITHUB_VERSION!  │   ✓ Актуальна         ║
             ) else (
                 echo  ║ LIVE   │    !LIVE_VERSION!    │ !GITHUB_VERSION!  │   ✗ Устарела          ║
@@ -1020,7 +1092,7 @@ if defined STATUS_TABLE_READY (
         if "!PTU_VERSION!"=="не найдена" (
             echo  ║ PTU    │ не установлена  │ !GITHUB_VERSION!  │   ✗ Не установлена    ║
         ) else (
-            if "!PTU_VERSION!"=="!GITHUB_VERSION!" (
+            if "!PTU_VERSION_NUM!"=="!GITHUB_VERSION_NUM!" (
                 echo  ║ PTU    │    !PTU_VERSION!    │ !GITHUB_VERSION!  │   ✓ Актуальна         ║
             ) else (
                 echo  ║ PTU    │    !PTU_VERSION!    │ !GITHUB_VERSION!  │   ✗ Устарела          ║
