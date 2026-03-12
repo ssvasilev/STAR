@@ -202,6 +202,29 @@ call :RedrawScreen
 echo ✓ Последняя версия на GitHub: !GITHUB_VERSION!
 echo.
 
+:: Проверяем тип сборки в GitHub релизе
+call :ShowProgress "Проверка типа сборки..." 100
+set "GITHUB_BUILD_TYPE=не найден"
+
+:: Скачиваем global.ini из GitHub для проверки типа сборки
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/%GITHUB_AUTOR%/%GITHUB_REPO%/master/data/Localization/korean_(south_korea)/global.ini' -OutFile '%TEMP_DIR%\github_global.ini' -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>&1
+
+if %errorlevel% equ 0 (
+    if exist "%TEMP_DIR%\github_global.ini" (
+        call :GetBuildTypeFromFile "%TEMP_DIR%\github_global.ini" GITHUB_BUILD_TYPE
+    )
+)
+
+if "!GITHUB_BUILD_TYPE!"=="не найден" (
+    echo ⚠️ Не удалось определить тип сборки в GitHub релизе
+    echo Продолжаем с предположением, что релиз корректный
+    set "GITHUB_BUILD_TYPE=UNKNOWN"
+) else (
+    echo ✓ Тип сборки в GitHub релизе: !GITHUB_BUILD_TYPE!
+)
+
+echo.
+
 :: Устанавливаем флаг что таблица статуса готова
 set "STATUS_TABLE_READY=1"
 
@@ -247,22 +270,48 @@ echo [4/4] Выбор версии для обновления:
 echo.
 
 if "!LIVE_FOUND!"=="true" (
-    if "!LIVE_VERSION!"=="не найдена" (
-        echo  1 - Установить LIVE локализацию версии !GITHUB_VERSION!
-    ) else (
-        if not "!LIVE_VERSION!"=="!GITHUB_VERSION!" (
-            echo  1 - Обновить LIVE, текущая: !LIVE_VERSION! → !GITHUB_VERSION!
+    :: Показываем обновление для LIVE только если GitHub релиз содержит LIVE сборку или тип неизвестен
+    if "!GITHUB_BUILD_TYPE!"=="LIVE" (
+        if "!LIVE_VERSION!"=="не найдена" (
+            echo  1 - Установить LIVE локализацию версии !GITHUB_VERSION!
+        ) else (
+            if not "!LIVE_VERSION!"=="!GITHUB_VERSION!" (
+                echo  1 - Обновить LIVE, текущая: !LIVE_VERSION! → !GITHUB_VERSION!
+            )
         )
+    ) else if "!GITHUB_BUILD_TYPE!"=="UNKNOWN" (
+        if "!LIVE_VERSION!"=="не найдена" (
+            echo  1 - Установить LIVE локализацию версии !GITHUB_VERSION!
+        ) else (
+            if not "!LIVE_VERSION!"=="!GITHUB_VERSION!" (
+                echo  1 - Обновить LIVE, текущая: !LIVE_VERSION! → !GITHUB_VERSION!
+            )
+        )
+    ) else if "!GITHUB_BUILD_TYPE!"=="PTU" (
+        echo ⚠️  В GitHub релизе находится PTU сборка, обновление LIVE недоступно
     )
 )
 
 if "!PTU_FOUND!"=="true" (
-    if "!PTU_VERSION!"=="не найдена" (
-        echo  2 - Установить PTU локализацию версии !GITHUB_VERSION!
-    ) else (
-        if not "!PTU_VERSION!"=="!GITHUB_VERSION!" (
-            echo  2 - Обновить PTU, текущая: !PTU_VERSION! → !GITHUB_VERSION!
+    :: Показываем обновление для PTU только если GitHub релиз содержит PTU сборку или тип неизвестен
+    if "!GITHUB_BUILD_TYPE!"=="PTU" (
+        if "!PTU_VERSION!"=="не найдена" (
+            echo  2 - Установить PTU локализацию версии !GITHUB_VERSION!
+        ) else (
+            if not "!PTU_VERSION!"=="!GITHUB_VERSION!" (
+                echo  2 - Обновить PTU, текущая: !PTU_VERSION! → !GITHUB_VERSION!
+            )
         )
+    ) else if "!GITHUB_BUILD_TYPE!"=="UNKNOWN" (
+        if "!PTU_VERSION!"=="не найдена" (
+            echo  2 - Установить PTU локализацию версии !GITHUB_VERSION!
+        ) else (
+            if not "!PTU_VERSION!"=="!GITHUB_VERSION!" (
+                echo  2 - Обновить PTU, текущая: !PTU_VERSION! → !GITHUB_VERSION!
+            )
+        )
+    ) else if "!GITHUB_BUILD_TYPE!"=="LIVE" (
+        echo ⚠️  В GitHub релизе находится LIVE сборка, обновление PTU недоступно
     )
 )
 
