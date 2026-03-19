@@ -483,7 +483,7 @@ echo  +-------------------------------------------------------------------------
 echo  ^| Ветка ^| Установлена            ^| GitHub по тегу       ^| Статус                    ^|
 echo  +-----------------------------------------------------------------------------------+
 call :PrintStatusRow "LIVE" "!LIVE_VERSION!" "!LATEST_LIVE_VERSION!" "!LIVE_STATUS!"
-call :PrintStatusRow "PTU " "!PTU_VERSION!" "!LATEST_PTU_VERSION!" "!PTU_STATUS!"
+call :PrintStatusRow "PTU" "!PTU_VERSION!" "!LATEST_PTU_VERSION!" "!PTU_STATUS!"
 echo  +-----------------------------------------------------------------------------------+
 echo.
 goto :eof
@@ -1460,7 +1460,7 @@ mkdir "%WORK_DIR%" >nul 2>&1
 
 set "DOWNLOAD_URL=https://github.com/%GITHUB_AUTHOR%/%GITHUB_REPO%/archive/refs/tags/%req_tag%.zip"
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest -Headers @{ 'User-Agent'='SC-RU-Updater' } -Uri '%DOWNLOAD_URL%' -OutFile '%ZIP_FILE%' -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>&1
+powershell -NoProfile -ExecutionPo----licy Bypass -Command "try { Invoke-WebRequest -Headers @{ 'User-Agent'='SC-RU-Updater' } -Uri '%DOWNLOAD_URL%' -OutFile '%ZIP_FILE%' -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>&1
 if errorlevel 1 exit /b 1
 
 call :ShowProgress "Распаковка архива..." 40
