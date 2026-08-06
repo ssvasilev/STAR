@@ -108,28 +108,193 @@ set "PATHS_LOADED="
 
 if not exist "%TEMP_DIR%" mkdir "%TEMP_DIR%" >nul 2>&1
 
-:: -----------------------------
+:: =========================================================
 :: Автообнаружение рядом со скриптом
-:: -----------------------------
+:: =========================================================
+set "AUTO_LAUNCHER="
+set "AUTO_LIVE="
+
+:: Проверяем, не лежит ли скрипт в папке с лаунчером
 if exist "%SCRIPT_DIR%RSI Launcher.exe" (
-    set "LAUNCHER_PATH=%SCRIPT_DIR%"
-    set "LAUNCHER_AUTO_DETECTED=1"
+    set "AUTO_LAUNCHER=%SCRIPT_DIR%"
 )
 
-if exist "%SCRIPT_DIR%StarCitizen_Launcher.exe" (
-    if exist "%SCRIPT_DIR%Bin64\StarCitizen.exe" (
-        set "LIVE_PATH=%SCRIPT_DIR%"
-        set "LIVE_AUTO_DETECTED=1"
+:: Проверяем, не лежит ли скрипт в папке RSI Launcher уровнем выше
+if not defined AUTO_LAUNCHER (
+    if exist "%SCRIPT_DIR%..\RSI Launcher.exe" (
+        for %%A in ("%SCRIPT_DIR%..") do set "AUTO_LAUNCHER=%%~fA"
     )
 )
 
+:: Проверяем, не лежит ли скрипт в папке с игрой
+if exist "%SCRIPT_DIR%StarCitizen_Launcher.exe" (
+    if exist "%SCRIPT_DIR%Bin64\StarCitizen.exe" (
+        set "AUTO_LIVE=%SCRIPT_DIR%"
+    )
+)
+
+:: =========================================================
+:: Загрузка конфигурации с учётом приоритетов
+:: =========================================================
 call :RenderScreen
 
-call :LoadOrSetupConfig
+if exist "%CONFIG_FILE%" (
+    echo Загружаю сохранённую конфигурацию...
+    call :LoadConfigFile
 
+    :: Проверяем валидность путей из конфига
+    set "CONFIG_VALID=true"
+
+    if not "!LAUNCHER_PATH!"=="" (
+        if not exist "!LAUNCHER_PATH!\RSI Launcher.exe" (
+            echo ⚠ Лаунчер не найден по пути из конфига: !LAUNCHER_PATH!
+            set "LAUNCHER_PATH="
+            set "CONFIG_VALID=false"
+        )
+    )
+
+    if not "!LIVE_PATH!"=="" (
+        call :ValidateGameFolderSilent "!LIVE_PATH!" "LIVE"
+        if errorlevel 1 (
+            echo ⚠ Папка LIVE из конфига недоступна: !LIVE_PATH!
+            set "LIVE_PATH="
+            set "LIVE_CONFIGURED=false"
+            set "CONFIG_VALID=false"
+        ) else (
+            set "LIVE_CONFIGURED=true"
+        )
+    )
+
+    if not "!PTU_PATH!"=="" (
+        call :ValidateGameFolderSilent "!PTU_PATH!" "PTU"
+        if errorlevel 1 (
+            echo ⚠ Папка PTU из конфига недоступна: !PTU_PATH!
+            set "PTU_PATH="
+            set "PTU_CONFIGURED=false"
+            set "CONFIG_VALID=false"
+        ) else (
+            set "PTU_CONFIGURED=true"
+        )
+    )
+
+    :: Если конфиг частично невалиден, пробуем автообнаружение для отсутствующих путей
+    if "!CONFIG_VALID!"=="false" (
+        echo.
+        echo Некоторые пути из конфига недействительны. Проверяю автообнаружение...
+
+        if "!LAUNCHER_PATH!"=="" if defined AUTO_LAUNCHER (
+            echo ✓ Лаунчер найден автоматически: !AUTO_LAUNCHER!
+            set "LAUNCHER_PATH=!AUTO_LAUNCHER!"
+        )
+
+        if "!LIVE_CONFIGURED!"=="false" if defined AUTO_LIVE (
+            call :ValidateGameFolderSilent "!AUTO_LIVE!" "LIVE"
+            if not errorlevel 1 (
+                echo ✓ Папка LIVE найдена автоматически: !AUTO_LIVE!
+                set "LIVE_PATH=!AUTO_LIVE!"
+                set "LIVE_CONFIGURED=true"
+            )
+        )
+    )
+
+    :: Показываем итоговые пути
+    echo.
+    echo Настроенные пути:
+    if not "!LAUNCHER_PATH!"=="" echo   Лаунчер: !LAUNCHER_PATH!
+    if not "!LIVE_PATH!"=="" echo   LIVE: !LIVE_PATH!
+    if not "!PTU_PATH!"=="" echo   PTU:  !PTU_PATH!
+    echo.
+
+) else (
+    :: Конфига нет — используем автообнаружение
+    echo Конфигурационный файл не найден.
+    echo Проверяю автообнаружение...
+    echo.
+
+    if defined AUTO_LAUNCHER (
+        echo ✓ Лаунчер найден автоматически: !AUTO_LAUNCHER!
+        set "LAUNCHER_PATH=!AUTO_LAUNCHER!"
+    )
+
+    if defined AUTO_LIVE (
+        call :ValidateGameFolderSilent "!AUTO_LIVE!" "LIVE"
+        if not errorlevel 1 (
+            echo ✓ Папка LIVE найдена автоматически: !AUTO_LIVE!
+            set "LIVE_PATH=!AUTO_LIVE!"
+            set "LIVE_CONFIGURED=true"
+        )
+    )
+
+    :: Если автообнаружение не нашло лаунчер — ищем по стандартным путям
+    if "!LAUNCHER_PATH!"=="" (
+        echo Поиск лаунчера по стандартным путям...
+        call :FindStandardPaths
+        if "!LAUNCHER_FOUND!"=="true" (
+            echo ✓ Лаунчер найден: !LAUNCHER_PATH!
+        )
+    )
+
+    :: Если при поиске лаунчера нашлась и игра — сразу используем
+    if "!LIVE_FOUND!"=="true" if "!LIVE_CONFIGURED!"=="false" (
+        echo ✓ Папка LIVE найдена: !LIVE_PATH!
+        set "LIVE_CONFIGURED=true"
+    )
+
+    if "!PTU_FOUND!"=="true" if "!PTU_CONFIGURED!"=="false" (
+        echo ✓ Папка PTU найдена: !PTU_PATH!
+        set "PTU_CONFIGURED=true"
+    )
+
+    :: Если и после поиска по дискам ничего не найдено — ручная настройка
+    if "!LAUNCHER_PATH!"=="" if "!LIVE_CONFIGURED!"=="false" (
+        echo.
+        echo Автообнаружение не нашло установленных компонентов.
+        echo Запуск первоначальной настройки...
+        goto :SetupConfig
+    )
+
+    :: Сохраняем конфиг и продолжаем
+    if not "!LAUNCHER_PATH!"=="" (
+        echo.
+        echo Настроенные пути:
+        echo   Лаунчер: !LAUNCHER_PATH!
+        if "!LIVE_CONFIGURED!"=="true" echo   LIVE: !LIVE_PATH!
+        if "!PTU_CONFIGURED!"=="true" echo   PTU:  !PTU_PATH!
+        echo.
+        call :SaveConfig
+        echo ✓ Конфигурация сохранена: %CONFIG_FILE%
+        timeout /t 2 /nobreak >nul
+    )
+)
+
+:: =========================================================
+:: Если после всех проверок пути пустые — ищем стандартными методами
+:: =========================================================
+
+:: Сначала ищем стандартными путями (диски C, D, E...)
+if "!LAUNCHER_PATH!"=="" (
+    echo Поиск лаунчера по стандартным путям...
+    call :FindStandardPaths
+    if "!LAUNCHER_FOUND!"=="true" (
+        echo ✓ Лаунчер найден автоматически: !LAUNCHER_PATH!
+    )
+)
+
+:: Автоматически подхватываем найденные папки игры
+if "!LIVE_FOUND!"=="true" if "!LIVE_CONFIGURED!"=="false" (
+    echo ✓ Папка LIVE найдена автоматически: !LIVE_PATH!
+    set "LIVE_CONFIGURED=true"
+)
+
+if "!PTU_FOUND!"=="true" if "!PTU_CONFIGURED!"=="false" (
+    echo ✓ Папка PTU найдена автоматически: !PTU_PATH!
+    set "PTU_CONFIGURED=true"
+)
+
+:: Если после поиска по дискам всё ещё не нашли — ручной выбор
 if "!LAUNCHER_PATH!"=="" (
     echo.
-    echo Путь к RSI Launcher не настроен.
+    echo Путь к RSI Launcher не найден автоматически.
     echo.
     :SelectLauncherAfterLoad
     call :SelectFolder "Выберите папку с RSI Launcher.exe" LAUNCHER_PATH
@@ -152,14 +317,56 @@ if "!LAUNCHER_PATH!"=="" (
     )
 )
 
-if defined LAUNCHER_AUTO_DETECTED (
-    call :SaveConfig
-    set "LAUNCHER_AUTO_DETECTED="
+:: Если игра не найдена — ручная настройка
+if "!LIVE_CONFIGURED!"=="false" if "!PTU_CONFIGURED!"=="false" (
+    echo.
+    echo Ни одна папка игры не настроена.
+    echo.
+    set /p "SETUP_GAME=Настроить папки игры сейчас? (Y/N): "
+    if /i "!SETUP_GAME!"=="Y" (
+        if "!LIVE_FOUND!"=="false" (
+            :SelectLiveManual
+            call :SelectFolder "Выберите папку LIVE игры" LIVE_PATH
+            if not "!LIVE_PATH!"=="" (
+                call :ValidateGameFolder "!LIVE_PATH!" "LIVE"
+                if errorlevel 1 (
+                    set /p "RETRY=Выбрать другую папку? (Y/N): "
+                    if /i "!RETRY!"=="Y" goto :SelectLiveManual
+                    set "LIVE_PATH="
+                ) else (
+                    set "LIVE_CONFIGURED=true"
+                )
+            )
+        )
+
+        if "!PTU_FOUND!"=="false" (
+            set /p "ASK_PTU=Настроить папку PTU? (Y/N): "
+            if /i "!ASK_PTU!"=="Y" (
+                :SelectPTUManual
+                call :SelectFolder "Выберите папку PTU игры" PTU_PATH
+                if not "!PTU_PATH!"=="" (
+                    call :ValidateGameFolder "!PTU_PATH!" "PTU"
+                    if errorlevel 1 (
+                        set /p "RETRY=Выбрать другую папку? (Y/N): "
+                        if /i "!RETRY!"=="Y" goto :SelectPTUManual
+                        set "PTU_PATH="
+                    ) else (
+                        set "PTU_CONFIGURED=true"
+                    )
+                )
+            )
+        )
+
+        call :SaveConfig
+    )
 )
 
-if defined LIVE_AUTO_DETECTED (
-    call :SaveConfig
-    set "LIVE_AUTO_DETECTED="
+:: Если после всего нет ни одной папки игры — ошибка
+if "!LIVE_CONFIGURED!"=="false" if "!PTU_CONFIGURED!"=="false" (
+    echo.
+    echo ОШИБКА: Не настроена ни одна папка игры ^(LIVE/PTU^)
+    pause
+    exit /b 1
 )
 
 set "PATHS_LOADED=1"
@@ -177,15 +384,6 @@ call :RefreshVersionStatus
 
 call :ShowProgress "Локальные версии определены" 100
 echo.
-
-if "!LIVE_CONFIGURED!"=="false" if "!PTU_CONFIGURED!"=="false" (
-    echo ОШИБКА: Не настроена ни одна папка игры ^(LIVE/PTU^)
-    echo.
-    set /p "RECONFIRM=Настроить пути заново сейчас? (Y/N): "
-    if /i "!RECONFIRM!"=="Y" goto :SetupConfig
-    pause
-    exit /b 1
-)
 
 :: =========================================================
 :: [2/4] Проверка релизов на GitHub по тегам
@@ -351,6 +549,27 @@ if not "!ARCHIVE_VERSION_DIGITS!"=="!TARGET_VERSION!" (
 
 echo ✓ Архив подтверждён: !ARCHIVE_BUILD_TYPE! !ARCHIVE_VERSION_DIGITS!
 echo.
+
+:: Проверка и валидация пути установки
+if /i "!CURRENT_INSTALL!"=="LIVE" (
+    set "SELECTED_PATH=!LIVE_PATH!"
+) else (
+    set "SELECTED_PATH=!PTU_PATH!"
+)
+
+if "!SELECTED_PATH!"=="" (
+    echo ОШИБКА: Не задан путь для установки !CURRENT_INSTALL!
+    if /i "!CURRENT_INSTALL!"=="LIVE" set "INSTALL_LIVE_RESULT=путь не задан"
+    if /i "!CURRENT_INSTALL!"=="PTU" set "INSTALL_PTU_RESULT=путь не задан"
+    goto :ContinueAutoInstall
+)
+
+if not exist "!SELECTED_PATH!\" (
+    echo ОШИБКА: Путь установки не существует: !SELECTED_PATH!
+    if /i "!CURRENT_INSTALL!"=="LIVE" set "INSTALL_LIVE_RESULT=путь не существует"
+    if /i "!CURRENT_INSTALL!"=="PTU" set "INSTALL_PTU_RESULT=путь не существует"
+    goto :ContinueAutoInstall
+)
 
 set "SOURCE_DATA=!EXTRACTED_ROOT!\data"
 if not exist "!SOURCE_DATA!" (
@@ -644,84 +863,24 @@ goto :eof
 :: =========================================================
 :: Конфиг / настройка путей
 :: =========================================================
-:LoadOrSetupConfig
-if exist "%CONFIG_FILE%" (
-    echo Загружаю сохранённую конфигурацию...
-
-    for /f "usebackq delims=" %%L in ("%CONFIG_FILE%") do (
-        set "cfg_line=%%L"
-        if defined cfg_line (
-            if not "!cfg_line:~0,2!"=="//" (
-                for /f "tokens=1,* delims==" %%a in ("!cfg_line!") do (
-                    if "%%a"=="LAUNCHER_PATH" set "LAUNCHER_PATH=%%b"
-                    if "%%a"=="LIVE_REPO" set "LIVE_REPO=%%b"
-                    if "%%a"=="LIVE_VERSION" set "LIVE_VERSION=%%b"
-                    if "%%a"=="LIVE_PATH" set "LIVE_PATH=%%b"
-                    if "%%a"=="PTU_REPO" set "PTU_REPO=%%b"
-                    if "%%a"=="PTU_VERSION" set "PTU_VERSION=%%b"
-                    if "%%a"=="PTU_PATH" set "PTU_PATH=%%b"
-                )
+:LoadConfigFile
+for /f "usebackq delims=" %%L in ("%CONFIG_FILE%") do (
+    set "cfg_line=%%L"
+    if defined cfg_line (
+        if not "!cfg_line:~0,2!"=="//" (
+            for /f "tokens=1,* delims==" %%a in ("!cfg_line!") do (
+                if "%%a"=="LAUNCHER_PATH" set "LAUNCHER_PATH=%%b"
+                if "%%a"=="LIVE_REPO" set "LIVE_REPO=%%b"
+                if "%%a"=="LIVE_VERSION" set "LIVE_VERSION=%%b"
+                if "%%a"=="LIVE_PATH" set "LIVE_PATH=%%b"
+                if "%%a"=="PTU_REPO" set "PTU_REPO=%%b"
+                if "%%a"=="PTU_VERSION" set "PTU_VERSION=%%b"
+                if "%%a"=="PTU_PATH" set "PTU_PATH=%%b"
             )
         )
     )
-
-    echo Настроенные пути:
-    if not "!LAUNCHER_PATH!"=="" echo   Лаунчер: !LAUNCHER_PATH!
-    if not "!LIVE_PATH!"=="" echo   LIVE: !LIVE_PATH!
-    if not "!PTU_PATH!"=="" echo   PTU:  !PTU_PATH!
-    echo.
-
-    set "LIVE_CONFIGURED=false"
-    set "PTU_CONFIGURED=false"
-    set "BROKEN_CONFIG=false"
-
-    if not "!LIVE_PATH!"=="" (
-        call :ValidateGameFolder "!LIVE_PATH!" "LIVE"
-        if errorlevel 1 (
-            echo ⚠ Папка LIVE недоступна по сохранённому пути
-            set "LIVE_PATH="
-            set "BROKEN_CONFIG=true"
-        ) else (
-            set "LIVE_CONFIGURED=true"
-        )
-    )
-
-    if not "!PTU_PATH!"=="" (
-        call :ValidateGameFolder "!PTU_PATH!" "PTU"
-        if errorlevel 1 (
-            echo ⚠ Папка PTU недоступна по сохранённому пути
-            set "PTU_PATH="
-            set "BROKEN_CONFIG=true"
-        ) else (
-            set "PTU_CONFIGURED=true"
-        )
-    )
-
-    if not "!LAUNCHER_PATH!"=="" (
-        if not exist "!LAUNCHER_PATH!\RSI Launcher.exe" (
-            echo ⚠ Лаунчер не найден по указанному пути
-            set "LAUNCHER_PATH="
-            set "BROKEN_CONFIG=true"
-        )
-    )
-
-    if "!LIVE_CONFIGURED!"=="true" goto :eof
-    if "!PTU_CONFIGURED!"=="true" goto :eof
-
-    echo.
-    if "!BROKEN_CONFIG!"=="true" (
-        echo Сохранённые пути стали невалидны.
-        set /p "RECONFIGURE_NOW=Настроить пути заново сейчас? (Y/N): "
-        if /i "!RECONFIGURE_NOW!"=="Y" goto :SetupConfig
-        goto :eof
-    ) else (
-        echo Необходимо настроить пути заново.
-        goto :SetupConfig
-    )
-) else (
-    echo Конфигурационный файл не найден.
-    echo Запуск первоначальной настройки...
 )
+goto :eof
 
 :SetupConfig
 cls
@@ -731,17 +890,20 @@ echo    Первоначальная настройка путей
 echo ════════════════════════════════════════
 echo.
 
+:: Если лаунчер ещё не найден — пробуем поиск по дискам
+if "!LAUNCHER_PATH!"=="" (
+    echo Поиск лаунчера по стандартным путям...
+    call :FindStandardPaths
+)
+
 echo Настройка пути к RSI Launcher
 echo.
 
 if not "!LAUNCHER_PATH!"=="" (
-    if not defined LAUNCHER_AUTO_DETECTED (
-        echo ✓ Текущий путь к лаунчеру: !LAUNCHER_PATH!
-        set /p "RECONFIGURE_LAUNCHER=Переустановить путь к лаунчеру? (Y/N): "
-        if /i not "!RECONFIGURE_LAUNCHER!"=="Y" goto :SkipLauncherSetup
-    ) else (
-        goto :SkipLauncherSetup
-    )
+    echo ✓ Лаунчер найден автоматически: !LAUNCHER_PATH!
+    set /p "RECONFIGURE_LAUNCHER=Использовать другой путь? (Y/N): "
+    if /i not "!RECONFIGURE_LAUNCHER!"=="Y" goto :SkipLauncherSetup
+    set "LAUNCHER_PATH="
 )
 
 :SelectLauncherFolder
@@ -762,19 +924,22 @@ if not "!LAUNCHER_PATH!"=="" (
 :SkipLauncherSetup
 
 echo.
-echo Поиск установленных версий игры
-echo Автоматический поиск установленных версий...
-call :FindStandardPaths
-
-echo.
 echo Настройка папки LIVE
 
-if defined LIVE_AUTO_DETECTED (
-    echo ✓ Папка LIVE автоматически обнаружена: !LIVE_PATH!
-    set "LIVE_CONFIGURED=true"
-    set "LIVE_AUTO_DETECTED="
-    goto :SkipLiveSetup
+:: ПРИОРИТЕТ: автообнаружение из начала скрипта
+if defined AUTO_LIVE (
+    call :ValidateGameFolderSilent "!AUTO_LIVE!" "LIVE"
+    if not errorlevel 1 (
+        echo ✓ Папка LIVE автоматически обнаружена: !AUTO_LIVE!
+        set "LIVE_PATH=!AUTO_LIVE!"
+        set "LIVE_CONFIGURED=true"
+        goto :SkipLiveSetup
+    )
 )
+
+:: Иначе — поиск по стандартным путям
+echo Автоматический поиск установленных версий...
+call :FindStandardPaths
 
 if "!LIVE_FOUND!"=="true" (
     echo ✓ Найдена потенциальная папка LIVE: !LIVE_PATH!
@@ -922,12 +1087,45 @@ if !is_valid! equ 0 (
 )
 exit /b !is_valid!
 
+:ValidateGameFolderSilent
+set "game_path=%~1"
+set "game_type=%~2"
+
+if "%game_path%"=="" exit /b 1
+if not exist "!game_path!\" exit /b 1
+if not exist "!game_path!\Bin64\" exit /b 1
+if not exist "!game_path!\StarCitizen_Launcher.exe" exit /b 1
+exit /b 0
+
 :FindStandardPaths
 set "LIVE_FOUND=false"
 set "PTU_FOUND=false"
+set "LAUNCHER_FOUND=false"
 
 set DISKS=A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
 
+:: Поиск лаунчера RSI Launcher
+for %%D in (!DISKS!) do (
+    set "test_path1=%%D:\Roberts Space Industries\RSI Launcher"
+    set "test_path2=%%D:\Program Files\Roberts Space Industries\RSI Launcher"
+    set "test_path3=%%D:\Program Files (x86)\Roberts Space Industries\RSI Launcher"
+    set "test_path4=%%D:\Games\RSI Launcher"
+    set "test_path5=%%D:\RSI Launcher"
+    set "test_path6=%%D:\StarCitizen\RSI Launcher"
+    set "test_path7=%%D:\RSI_Launcher\RSI Launcher"
+    set "test_path8=%%D:\StarCitizen\RSI_Launcher\RSI Launcher"
+
+    for %%P in ("!test_path1!" "!test_path2!" "!test_path3!" "!test_path4!" "!test_path5!" "!test_path6!" "!test_path7!" "!test_path8!") do (
+        if exist "%%~P\RSI Launcher.exe" (
+            if "!LAUNCHER_FOUND!"=="false" (
+                set "LAUNCHER_PATH=%%~P"
+                set "LAUNCHER_FOUND=true"
+            )
+        )
+    )
+)
+
+:: Поиск LIVE
 for %%D in (!DISKS!) do (
     set "test_path1=%%D:\Roberts Space Industries\StarCitizen\LIVE"
     set "test_path2=%%D:\Program Files\Roberts Space Industries\StarCitizen\LIVE"
@@ -945,6 +1143,7 @@ for %%D in (!DISKS!) do (
     )
 )
 
+:: Поиск PTU
 for %%D in (!DISKS!) do (
     set "test_path1=%%D:\Roberts Space Industries\StarCitizen\PTU"
     set "test_path2=%%D:\Program Files\Roberts Space Industries\StarCitizen\PTU"
@@ -961,6 +1160,12 @@ for %%D in (!DISKS!) do (
         )
     )
 )
+
+:: Если лаунчер найден — показываем
+if "!LAUNCHER_FOUND!"=="true" (
+    echo ✓ Лаунчер найден: !LAUNCHER_PATH!
+)
+
 goto :eof
 
 :SelectFolder
