@@ -44,6 +44,13 @@ set "TEMP_DIR=%TEMP%\star_updater"
 set "CONFIG_FILE=%SCRIPT_DIR%star_config.cfg"
 
 :: -----------------------------
+:: Проверка ключей запуска
+:: -----------------------------
+set "NO_LAUNCH=false"
+if /i "%~1"=="-no-launch" set "NO_LAUNCH=true"
+if /i "%~1"=="--no-launch" set "NO_LAUNCH=true"
+if /i "%~1"=="/no-launch" set "NO_LAUNCH=true"
+:: -----------------------------
 :: Конфигурация
 :: -----------------------------
 set "LAUNCHER_PATH="
@@ -427,6 +434,7 @@ if "!GITHUB_OK!"=="false" (
     echo Не удалось получить данные об обновлениях
     echo.
     call :ShowFinalReport
+    if "!NO_LAUNCH!"=="true" goto :ExitNoLaunch
     echo Запуск лаунчера через 3 секунды...
     timeout /t 3 /nobreak >nul
     goto :LaunchGame
@@ -436,6 +444,7 @@ if "!INSTALL_LIVE_NEEDED!"=="false" if "!INSTALL_PTU_NEEDED!"=="false" (
     echo Все версии актуальны!
     echo.
     echo ✓ Обновление не требуется
+    if "!NO_LAUNCH!"=="true" goto :ExitNoLaunch
     echo Запуск лаунчера через 3 секунды...
     timeout /t 3 /nobreak >nul
     goto :LaunchGame
@@ -652,9 +661,16 @@ call :RecalculateStatuses
 call :RenderScreen
 call :ShowFinalReport
 
+if "!NO_LAUNCH!"=="true" goto :ExitNoLaunch
 echo Запуск лаунчера через 3 секунды...
 timeout /t 3 /nobreak >nul
 goto :LaunchGame
+
+:ExitNoLaunch
+echo.
+echo ✓ Работа завершена. Лаунчер не запускается (ключ -no-launch).
+timeout /t 2 /nobreak >nul
+exit /b 0
 
 :: =========================================================
 :: Запуск лаунчера
