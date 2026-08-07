@@ -345,25 +345,6 @@ if "!LIVE_CONFIGURED!"=="false" if "!PTU_CONFIGURED!"=="false" (
                 )
             )
         )
-
-        if "!PTU_FOUND!"=="false" (
-            set /p "ASK_PTU=Настроить папку PTU? (Y/N): "
-            if /i "!ASK_PTU!"=="Y" (
-                :SelectPTUManual
-                call :SelectFolder "Выберите папку PTU игры" PTU_PATH
-                if not "!PTU_PATH!"=="" (
-                    call :ValidateGameFolder "!PTU_PATH!" "PTU"
-                    if errorlevel 1 (
-                        set /p "RETRY=Выбрать другую папку? (Y/N): "
-                        if /i "!RETRY!"=="Y" goto :SelectPTUManual
-                        set "PTU_PATH="
-                    ) else (
-                        set "PTU_CONFIGURED=true"
-                    )
-                )
-            )
-        )
-
         call :SaveConfig
     )
 )
@@ -994,44 +975,16 @@ if "!LIVE_FOUND!"=="false" (
 
 :SkipLiveSetup
 
-echo.
-echo Настройка PTU (опционально)
-
+:: PTU — только если найдена автоматически, без лишних вопросов
 if "!PTU_FOUND!"=="true" (
-    echo ✓ Найдена потенциальная папка PTU: !PTU_PATH!
-    call :ValidateGameFolder "!PTU_PATH!" "PTU"
+    echo.
+    echo ✓ Найдена папка PTU: !PTU_PATH!
+    call :ValidateGameFolderSilent "!PTU_PATH!" "PTU"
     if not errorlevel 1 (
-        set /p "USE_FOUND=Использовать этот путь? (Y/N): "
-        if /i not "!USE_FOUND!"=="Y" (
-            set "PTU_FOUND=false"
-            set "PTU_PATH="
-            set "PTU_CONFIGURED=false"
-        ) else (
-            set "PTU_CONFIGURED=true"
-        )
+        set "PTU_CONFIGURED=true"
     ) else (
         set "PTU_FOUND=false"
         set "PTU_PATH="
-        set "PTU_CONFIGURED=false"
-    )
-)
-
-if "!PTU_FOUND!"=="false" (
-    set /p "ASK_PTU=Настроить папку PTU? (Y/N): "
-    if /i "!ASK_PTU!"=="Y" (
-        :SelectPTUFolder
-        call :SelectFolder "Выберите папку PTU игры" PTU_PATH
-        if not "!PTU_PATH!"=="" (
-            call :ValidateGameFolder "!PTU_PATH!" "PTU"
-            if errorlevel 1 (
-                set /p "RETRY=Выбрать другую папку? (Y/N): "
-                if /i "!RETRY!"=="Y" goto :SelectPTUFolder
-                set "PTU_PATH="
-                set "PTU_CONFIGURED=false"
-            ) else (
-                set "PTU_CONFIGURED=true"
-            )
-        )
     )
 )
 
@@ -1045,9 +998,10 @@ call :SaveConfig
 echo.
 echo ✓ Конфигурация сохранена: %CONFIG_FILE%
 timeout /t 2 /nobreak >nul
-goto :eof
 
-:SaveConfig
+:: Возвращаемся к диагностике
+set "PATHS_LOADED=1"
+goto :RestartDiagnostics
 (
     echo //Конфигурационный файл скрипта русификации StarCitizen
     echo LAUNCHER_PATH=!LAUNCHER_PATH!
@@ -1204,7 +1158,18 @@ if "!SELECTED_PATH!"=="" (
     set "!varname!=!SELECTED_PATH!"
     exit /b 0
 )
-
+:SaveConfig
+(
+    echo //Конфигурационный файл скрипта русификации StarCitizen
+    echo LAUNCHER_PATH=!LAUNCHER_PATH!
+    echo LIVE_REPO=!LIVE_REPO!
+    echo LIVE_VERSION=!LIVE_VERSION!
+    echo LIVE_PATH=!LIVE_PATH!
+    echo PTU_REPO=!PTU_REPO!
+    echo PTU_VERSION=!PTU_VERSION!
+    echo PTU_PATH=!PTU_PATH!
+) > "%CONFIG_FILE%"
+goto :eof
 :: =========================================================
 :: Версии / статусы
 :: =========================================================
